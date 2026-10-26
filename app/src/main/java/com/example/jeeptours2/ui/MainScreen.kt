@@ -10,11 +10,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.jeeptours2.data.TourRequest
 
 @Composable
 fun MainScreen(viewModel: TourViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsState()
-
+    var selectedLanguage by remember { mutableStateOf("UA") }
     var durationText by remember { mutableStateOf("4") }
     var selectedDifficulty by remember { mutableStateOf("MEDIUM") }
     var preferencesText by remember { mutableStateOf("водоспади та оглядові майданчики") }
@@ -30,7 +31,7 @@ fun MainScreen(viewModel: TourViewModel = viewModel()) {
                 .padding(16.dp)
         ) {
             Text(
-                text = "Генератор Джип-Турів",
+                text = "🚙 Джип-Тури",
                 style = MaterialTheme.typography.headlineMedium
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -64,9 +65,48 @@ fun MainScreen(viewModel: TourViewModel = viewModel()) {
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            Text(
+                text = "Мова генерації маршруту:",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Button(
+                    onClick = { selectedLanguage = "UA" },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedLanguage == "UA") MaterialTheme.colorScheme.primary else Color.Gray
+                    )
+                ) {
+                    Text("🇺🇦 UA")
+                }
+
+                Button(
+                    onClick = { selectedLanguage = "EN" },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedLanguage == "EN") MaterialTheme.colorScheme.primary else Color.Gray
+                    )
+                ) {
+                    Text("🇬🇧 EN")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Button(
                 onClick = {
-                    viewModel.generateTour(durationText, selectedDifficulty, preferencesText)
+                    val duration = durationText.toIntOrNull() ?: 1
+                    val request = TourRequest(
+                        durationHours = duration,
+                        difficulty = selectedDifficulty,
+                        preferences = preferencesText,
+                        language = selectedLanguage
+                    )
+                    viewModel.generateTour(request)
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -108,7 +148,6 @@ fun MainScreen(viewModel: TourViewModel = viewModel()) {
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // Перевірка наявності нових варіантів маршрутів з графіком
                             if (!tour.routes.isNullOrEmpty()) {
                                 Text(
                                     text = "Оберіть варіант маршруту:",
@@ -158,9 +197,7 @@ fun MainScreen(viewModel: TourViewModel = viewModel()) {
                                         )
                                     }
                                 }
-                            }
-                            // Резервний варіант (якщо сервер надсилає старий формат itinerary)
-                            else if (!tour.itinerary.isNullOrEmpty()) {
+                            } else if (!tour.itinerary.isNullOrEmpty()) {
                                 Text(
                                     text = "План маршруту:",
                                     style = MaterialTheme.typography.titleMedium
@@ -195,7 +232,14 @@ fun MainScreen(viewModel: TourViewModel = viewModel()) {
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(onClick = {
-                            viewModel.generateTour(durationText, selectedDifficulty, preferencesText)
+                            val duration = durationText.toIntOrNull() ?: 1
+                            val request = TourRequest(
+                                durationHours = duration,
+                                difficulty = selectedDifficulty,
+                                preferences = preferencesText,
+                                language = selectedLanguage
+                            )
+                            viewModel.generateTour(request)
                         }) {
                             Text("Повторити спробу")
                         }

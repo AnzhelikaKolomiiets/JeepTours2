@@ -4,6 +4,6 @@ import retrofit2.http.Body
 import retrofit2.http.POST
 
 interface TourApiService {
-    @POST("api/v1/tours/generate")
+    @POST("generate_route")
     suspend fun generateTour(@Body request: TourRequest): TourResponse
 }

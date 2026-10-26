@@ -5,7 +5,8 @@ import com.google.gson.annotations.SerializedName
 data class TourRequest(
     @SerializedName("duration_hours") val durationHours: Int,
     @SerializedName("difficulty") val difficulty: String,
-    @SerializedName("preferences") val preferences: String
+    @SerializedName("preferences") val preferences: String,
+    @SerializedName("language") val language: String = "UA"
 )
 
 data class RouteOption(
