@@ -2,60 +2,69 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List, Optional
 
-app = FastAPI(title="Jeep Tours API")
+app = FastAPI()
 
+# 1. Pydantic-моделі (структура залишається абсолютно такою ж, як в Android)
 class TourRequest(BaseModel):
-    duration_hours: int
-    difficulty: str
-    preferences: str
-    language: Optional[str] = "UA"
+    durationHours: int = 4
+    difficulty: str = "MEDIUM"
+    preferences: str = ""
+    language: str = "UA"
 
 class RouteOption(BaseModel):
-    id: str = ""
     name: str
     description: str
     schedule: List[str]
 
 class TourResponse(BaseModel):
-    tour_title: str
-    estimated_time: str = ""
-    recommended_vehicle: str
-    routes: Optional[List[RouteOption]] = None
-    itinerary: Optional[List[str]] = None
-    safety_tips: str
+    tourTitle: str
+    recommendedVehicle: str
+    routes: List[RouteOption]
+    safetyTips: str
 
-@app.post("/api/v1/tours/generate", response_model=TourResponse)
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "FastAPI Server is running!"}
+
+# 2. Обробник запиту з двома сумісними роутами
 @app.post("/generate_route", response_model=TourResponse)
-def generate_route(req: TourRequest):
-    lang = (req.language or "UA").upper()
+@app.post("/generate-tour", response_model=TourResponse)
+def generate_route(request: TourRequest):
+    is_en = (request.language or "UA").upper() == "EN"
+    diff = (request.difficulty or "MEDIUM").upper()
+    
+    # 🚗 Динамічна вибір авто відповідно до складності та тривалості
+    if diff == "EASY":
+        vehicle = "Suzuki Jimny 4x4" if is_en else "Сузукі Джимні 4x4"
+    elif diff == "HARD" or request.durationHours > 6:
+        vehicle = "Nissan Patrol Heavy Modified 4x4" if is_en else "Ніссан Патрол (Підготовлений 4x4)"
+    else:
+        vehicle = "Jeep Wrangler Rubicon 4x4" if is_en else "Джип Вранглер Рубікон 4x4"
 
-    if lang == "EN":
+    # Формуємо відповідь залежно від обраної мови
+    if is_en:
         return TourResponse(
-            tour_title=f"Jeep Tour '{req.preferences}'",
-            estimated_time=f"{req.duration_hours} hours",
-            recommended_vehicle="Jeep Wrangler 4x4",
+            tourTitle=f"Jeep Tour '{request.preferences}'",
+            recommendedVehicle=vehicle,
             routes=[
                 RouteOption(
-                    id="r1",
                     name="Scenic Mountain Trail",
-                    description=f"Active tour ({req.difficulty} difficulty level).",
-                    schedule=["09:00 - Departure", "12:00 - Waterfall stop", "15:00 - Return"]
+                    description=f"Active tour ({request.durationHours}h, level: {request.difficulty}).",
+                    schedule=["09:00 - Departure", "12:00 - Rest & viewpoints", "15:00 - Return"]
                 )
             ],
-            safety_tips="Always wear seatbelts and follow instructor guidance."
+            safetyTips="Always fasten your seatbelts and listen to the instructor."
         )
     else:
         return TourResponse(
-            tour_title=f"Джип-Тур «{req.preferences}»",
-            estimated_time=f"{req.duration_hours} год.",
-            recommended_vehicle="Jeep Wrangler 4x4",
+            tourTitle=f"Джип-Тур «{request.preferences}»",
+            recommendedVehicle=vehicle,
             routes=[
                 RouteOption(
-                    id="r1",
                     name="Мальовничий гірський маршрут",
-                    description=f"Активний тур (рівень складності: {req.difficulty}).",
-                    schedule=["09:00 - Виїзд", "12:00 - Зупинка біля водоспаду", "15:00 - Повернення"]
+                    description=f"Активний тур ({request.durationHours} год, рівень: {request.difficulty}).",
+                    schedule=["09:00 - Виїзд", "12:00 - Відпочинок та оглядові майданчики", "15:00 - Повернення"]
                 )
             ],
-            safety_tips="Завжди пристібайте ремені безпеки та слухайте інструктора."
+            safetyTips="Завжди пристібайте ремені безпеки та слухайте інструктора."
         )
