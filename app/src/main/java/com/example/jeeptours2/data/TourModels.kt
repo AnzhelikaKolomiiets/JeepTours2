@@ -2,41 +2,22 @@ package com.example.jeeptours2.data
 
 import com.google.gson.annotations.SerializedName
 
-data class TourRequest(
-    @SerializedName("durationHours")
-    val durationHours: Int,
-
-    @SerializedName("difficulty")
-    val difficulty: String,
-
-    @SerializedName("preferences")
-    val preferences: String,
-
-    @SerializedName("language")
-    val language: String = "UA"
-)
-
-data class RouteOption(
-    @SerializedName("name")
-    val name: String,
-
-    @SerializedName("description")
-    val description: String,
-
-    @SerializedName("schedule")
-    val schedule: List<String>
-)
-
 data class TourResponse(
-    @SerializedName("tourTitle")
-    val tourTitle: String,
+    @SerializedName("tourTitle") val tourTitle: String,
+    @SerializedName("recommendedVehicle") val recommendedVehicle: String,
+    @SerializedName("safetyTips") val safetyTips: String,
+    @SerializedName("schedule") val schedule: List<String>? = null
+)
 
-    @SerializedName("recommendedVehicle")
-    val recommendedVehicle: String,
+data class TourBookingRequest(
+    @SerializedName("tourTitle") val tourTitle: String,
+    @SerializedName("bookingDate") val bookingDate: String,
+    @SerializedName("userName") val userName: String,
+    @SerializedName("userPhone") val userPhone: String,
+    @SerializedName("language") val language: String
+)
 
-    @SerializedName("routes")
-    val routes: List<RouteOption> = emptyList(),
-
-    @SerializedName("safetyTips")
-    val safetyTips: String
+data class BookingResponse(
+    @SerializedName("message") val message: String,
+    @SerializedName("status") val status: String? = null
 )

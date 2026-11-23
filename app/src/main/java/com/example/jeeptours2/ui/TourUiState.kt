@@ -1,10 +1,11 @@
 package com.example.jeeptours2.ui
 
-import com.example.jeeptours2.data.TourResponse
+import com.example.jeeptours2.domain.model.AppError
+import com.example.jeeptours2.domain.model.GeneratedTourResult
 
-sealed interface TourUiState {
-    object Idle : TourUiState
-    object Loading : TourUiState
-    data class Success(val data: TourResponse) : TourUiState
-    data class Error(val message: String) : TourUiState
+sealed class TourUiState {
+    object Idle : TourUiState()
+    object Loading : TourUiState()
+    data class Success(val result: GeneratedTourResult) : TourUiState()
+    data class Error(val error: AppError) : TourUiState()
 }
