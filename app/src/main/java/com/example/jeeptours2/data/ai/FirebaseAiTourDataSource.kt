@@ -54,8 +54,14 @@ class FirebaseAiTourDataSource(
                     responseText
                 } else {
                     val errMsg = lastException?.message.orEmpty().lowercase()
-                    if (errMsg.contains("quota") || errMsg.contains("429")) {
-                        Log.w("AI_DEBUG", "Денна квота Free Tier вичерпана — використовуємо локальний резервний JSON")
+                    if (errMsg.contains("quota") ||
+                        errMsg.contains("429") ||
+                        errMsg.contains("503") ||
+                        errMsg.contains("unavailable") ||
+                        errMsg.contains("overloaded") ||
+                        errMsg.contains("high demand")
+                    ) {
+                        Log.w("AI_DEBUG", "Сервіс AI тимчасово недоступний або квота вичерпана — використовуємо локальний резервний JSON")
                         buildFallbackJson(prompt)
                     } else {
                         throw (lastException ?: IllegalStateException("Empty AI response body"))

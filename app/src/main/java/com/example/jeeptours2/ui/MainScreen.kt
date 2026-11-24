@@ -8,20 +8,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.jeeptours2.data.ai.TourPromptBuilder
 import com.example.jeeptours2.domain.model.AppError
-import com.example.jeeptours2.domain.model.GeneratedTourResult
-import com.example.jeeptours2.domain.model.SavedTourItem
 import com.example.jeeptours2.domain.model.TourPreset
 import com.example.jeeptours2.domain.model.TourRequestInput
 import com.example.jeeptours2.domain.repository.ITourRepository
-import kotlinx.coroutines.launch
 
 // 🎨 Палітра
 private val SoftSageGreen = Color(0xFF4A7C59)
@@ -83,18 +84,35 @@ private val popularPresets = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(repository: ITourRepository) {
-    val coroutineScope = rememberCoroutineScope()
+    // ViewModel зберігає стан генерації, помилок, бронювання та історії при повороті екрана / фоні
+    val tourViewModel: TourViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return TourViewModel(repository) as T
+            }
+        }
+    )
 
-    var isBuilderOpen by remember { mutableStateOf(false) }
-    var language by remember { mutableStateOf("UA") }
+    val uiState by tourViewModel.uiState.collectAsState()
+    val savedTours by tourViewModel.savedTours.collectAsState()
+    val bookingMessage by tourViewModel.bookingResult.collectAsState()
+    val isBookingLoading by tourViewModel.isBookingLoading.collectAsState()
+
+    // rememberSaveable зберігає поля форми при зміні орієнтації екрана
+    var isBuilderOpen by rememberSaveable { mutableStateOf(false) }
+    var language by rememberSaveable { mutableStateOf("UA") }
     val isEnglish = language == "EN"
 
-    // Параметри форми конструктора
-    var durationHours by remember { mutableStateOf("4") }
-    var difficulty by remember { mutableStateOf("MEDIUM") }
-    var preferences by remember { mutableStateOf("Говерла") }
-    var selectedRouteIndex by remember { mutableIntStateOf(0) }
-    var selectedWeatherIndex by remember { mutableIntStateOf(0) }
+    var durationHours by rememberSaveable { mutableStateOf("4") }
+    var difficulty by rememberSaveable { mutableStateOf("MEDIUM") }
+    var preferences by rememberSaveable { mutableStateOf("Говерла") }
+    var selectedRouteIndex by rememberSaveable { mutableIntStateOf(0) }
+    var selectedWeatherIndex by rememberSaveable { mutableIntStateOf(0) }
+
+    var userName by rememberSaveable { mutableStateOf("") }
+    var userPhone by rememberSaveable { mutableStateOf("") }
+    var bookingDate by rememberSaveable { mutableStateOf("2026-05-01") }
 
     val weatherOptions = if (isEnglish) {
         listOf("Dry / Clear", "Rain / Mud", "Winter / Snow")
@@ -118,68 +136,17 @@ fun MainScreen(repository: ITourRepository) {
     }
     val routeOptionType = routeOptions[selectedRouteIndex]
 
-    // Стан бронювання та генерації
-    var userName by remember { mutableStateOf("") }
-    var userPhone by remember { mutableStateOf("") }
-    var bookingDate by remember { mutableStateOf("2026-05-01") }
-    var bookingMessage by remember { mutableStateOf<String?>(null) }
-    var isBookingLoading by remember { mutableStateOf(false) }
-
-    var isLoading by remember { mutableStateOf(false) }
-    var tourResult by remember { mutableStateOf<GeneratedTourResult?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var isRetryableError by remember { mutableStateOf(true) }
-
-    var savedTours by remember { mutableStateOf<List<SavedTourItem>>(emptyList()) }
-
-    fun refreshHistory() {
-        coroutineScope.launch {
-            savedTours = repository.getSavedTours()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        refreshHistory()
-    }
-
     fun triggerGeneration() {
-        isLoading = true
-        errorMessage = null
-        tourResult = null
-        bookingMessage = null
-        isRetryableError = true
-
-        coroutineScope.launch {
-            val hours = durationHours.toIntOrNull() ?: 4
-            val input = TourRequestInput(
-                durationHours = hours,
-                difficulty = difficulty,
-                preferences = preferences,
-                routeOptionType = routeOptionType,
-                language = language,
-                seasonOrWeather = seasonOrWeather
-            )
-
-            val result = repository.generateTour(input)
-            result.onSuccess { res ->
-                tourResult = res
-                isLoading = false
-                if (res.isValidRequest) {
-                    refreshHistory()
-                }
-            }.onFailure { error ->
-                isRetryableError = error !is AppError.ConfigError && error !is AppError.InvalidInputError
-                errorMessage = when (error) {
-                    is AppError.TimeoutError -> if (isEnglish) "AI took too long to respond (20s timeout). Please retry." else "AI не встиг відповісти за 20 секунд. Спробуйте ще раз."
-                    is AppError.NetworkError -> if (isEnglish) "Network error. Check your internet connection." else "Немає з'єднання з мережею. Перевірте інтернет."
-                    is AppError.ConfigError -> if (isEnglish) "Firebase / App Check configuration error. Check debug token." else "Помилка налаштування Firebase / App Check. Перевірте debug token."
-                    is AppError.InvalidInputError -> if (isEnglish) "Check duration (1..24h) and location." else "Перевірте тривалість (1..24 год) та локацію."
-                    is AppError.ServerError -> if (isEnglish) "AI service error. Try again later." else "Помилка AI-сервісу. Спробуйте пізніше."
-                    else -> error.localizedMessage ?: if (isEnglish) "Loading error" else "Помилка завантаження"
-                }
-                isLoading = false
-            }
-        }
+        val hours = durationHours.toIntOrNull() ?: 4
+        val input = TourRequestInput(
+            durationHours = hours,
+            difficulty = difficulty,
+            preferences = preferences,
+            routeOptionType = routeOptionType,
+            language = language,
+            seasonOrWeather = seasonOrWeather
+        )
+        tourViewModel.generateTour(input)
     }
 
     fun openPresetInBuilder(preset: TourPreset) {
@@ -188,9 +155,7 @@ fun MainScreen(repository: ITourRepository) {
         difficulty = preset.defaultDifficulty
         selectedRouteIndex = preset.defaultTrackIndex
         selectedWeatherIndex = 0
-        tourResult = null
-        errorMessage = null
-        bookingMessage = null
+        tourViewModel.resetState()
         isBuilderOpen = true
     }
 
@@ -200,9 +165,7 @@ fun MainScreen(repository: ITourRepository) {
         difficulty = "MEDIUM"
         selectedRouteIndex = 0
         selectedWeatherIndex = 0
-        tourResult = null
-        errorMessage = null
-        bookingMessage = null
+        tourViewModel.resetState()
         isBuilderOpen = true
     }
 
@@ -407,13 +370,16 @@ fun MainScreen(repository: ITourRepository) {
                 }
             }
         } else {
+            val isLoading = uiState is TourUiState.Loading
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(DesertSand)
                     .padding(paddingValues)
                     .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 // PARAMETERS FORM
                 item {
@@ -523,212 +489,289 @@ fun MainScreen(repository: ITourRepository) {
                     }
                 }
 
-                // CONTROLLED ERROR STATE WITH RETRY
-                errorMessage?.let { error ->
-                    item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = "❌ $error",
-                                    color = Color(0xFFC62828),
-                                    fontWeight = FontWeight.Medium
-                                )
-                                if (isRetryableError) {
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    OutlinedButton(
-                                        onClick = { triggerGeneration() },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC62828))
-                                    ) {
-                                        Text(if (isEnglish) "🔄 Retry Request" else "🔄 Повторити запит")
-                                    }
-                                }
-                            }
+                // VIEWMODEL UI STATES: ERROR / SUCCESS / NO SUITABLE RESULT
+                when (val currentState = uiState) {
+                    is TourUiState.Error -> {
+                        val error = currentState.error
+                        val isRetryableError = error !is AppError.ConfigError && error !is AppError.InvalidInputError
+                        val errorText = when (error) {
+                            is AppError.TimeoutError -> if (isEnglish) "AI took too long to respond (25s timeout). Please retry." else "AI не встиг відповісти за 25 секунд. Спробуйте ще раз."
+                            is AppError.NetworkError -> if (isEnglish) "Network error. Check your internet connection." else "Немає з'єднання з мережею. Перевірте інтернет."
+                            is AppError.ConfigError -> if (isEnglish) "Firebase / App Check configuration error. Check debug token." else "Помилка налаштування Firebase / App Check. Перевірте debug token."
+                            is AppError.InvalidInputError -> if (isEnglish) "Check duration (1..24h) and location." else "Перевірте тривалість (1..24 год) та локацію."
+                            is AppError.ServerError -> if (isEnglish) "AI service error. Try again later." else "Помилка AI-сервісу. Спробуйте пізніше."
+                            else -> if (isEnglish) "Unexpected error occurred." else "Виникла непередбачена помилка."
                         }
-                    }
-                }
 
-                // GENERATED RESULT OR "NO SUITABLE RESULT" STATE
-                tourResult?.let { response ->
-                    if (!response.isValidRequest) {
                         item {
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
-                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Text(
-                                        text = if (isEnglish) "⚠️ No Suitable Route Found" else "⚠️ Немає придатного результату",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFE65100)
+                                        text = "❌ $errorText",
+                                        color = Color(0xFFC62828),
+                                        fontWeight = FontWeight.Medium
                                     )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = response.rejectionReason.orEmpty(),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFF4E342E)
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        val hoursCount = durationHours.toIntOrNull() ?: 4
-
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = LightSage),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text(
-                                        text = "🎯 ${response.tourTitle}",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = DarkForestGreen
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "🚜 ${response.recommendedVehicle}",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    if (response.weatherAdvice.isNotBlank()) {
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "🌦️ ${response.weatherAdvice}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = DarkForestGreen
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "🛡️ ${response.safetyTips}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFF33691E)
-                                    )
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    HorizontalDivider(color = SoftSageGreen.copy(alpha = 0.4f))
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    Text(
-                                        text = if (isEnglish) "⏱️ AI Schedule ($hoursCount hrs):" else "⏱️ AI-графік маршруту ($hoursCount год):",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = DarkForestGreen
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    response.schedule.forEach { step ->
-                                        Row(
-                                            modifier = Modifier.padding(vertical = 3.dp),
-                                            verticalAlignment = Alignment.Top
+                                    if (isRetryableError) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedButton(
+                                            onClick = { tourViewModel.retryLastTourGeneration() },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC62828))
                                         ) {
-                                            Text(text = "📌 ", fontSize = 14.sp)
-                                            Text(text = step, style = MaterialTheme.typography.bodyMedium, color = DarkForestGreen)
+                                            Text(if (isEnglish) "🔄 Retry Request" else "🔄 Повторити запит")
                                         }
                                     }
                                 }
                             }
                         }
+                    }
 
-                        // BOOKING FORM (БЕЗ РЕГРЕСІЇ)
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = DarkForestGreen),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    is TourUiState.Success -> {
+                        val response = currentState.result
+                        if (!response.isValidRequest) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = if (isEnglish) "📝 Book This Tour" else "📝 Бронювання туру",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = DesertSand
-                                    )
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = if (isEnglish) "⚠️ No Suitable Route Found" else "⚠️ Немає придатного результату",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFE65100)
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = response.rejectionReason.orEmpty(),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFF4E342E)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            val hoursCount = durationHours.toIntOrNull() ?: 4
 
-                                    OutlinedTextField(
-                                        value = userName,
-                                        onValueChange = { userName = it },
-                                        label = { Text(if (isEnglish) "👤 Name" else "👤 Ім'я", color = DesertSand) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = SoftSageGreen,
-                                            unfocusedBorderColor = DesertSand,
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White
-                                        ),
-                                        singleLine = true
-                                    )
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = LightSage),
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = "🎯 ${response.tourTitle}",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = DarkForestGreen
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "🚜 ${response.recommendedVehicle}",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        if (response.weatherAdvice.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "🌦️ ${response.weatherAdvice}",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = DarkForestGreen
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "🛡️ ${response.safetyTips}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFF33691E)
+                                        )
 
-                                    OutlinedTextField(
-                                        value = userPhone,
-                                        onValueChange = { userPhone = it },
-                                        label = { Text(if (isEnglish) "📞 Phone" else "📞 Телефон", color = DesertSand) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = SoftSageGreen,
-                                            unfocusedBorderColor = DesertSand,
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White
-                                        ),
-                                        singleLine = true
-                                    )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        HorizontalDivider(color = SoftSageGreen.copy(alpha = 0.4f))
+                                        Spacer(modifier = Modifier.height(8.dp))
 
-                                    OutlinedTextField(
-                                        value = bookingDate,
-                                        onValueChange = { bookingDate = it },
-                                        label = { Text(if (isEnglish) "📅 Date" else "📅 Дата", color = DesertSand) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = SoftSageGreen,
-                                            unfocusedBorderColor = DesertSand,
-                                            focusedTextColor = Color.White,
-                                            unfocusedTextColor = Color.White
-                                        ),
-                                        singleLine = true
-                                    )
+                                        Text(
+                                            text = if (isEnglish) "⏱️ AI Schedule ($hoursCount hrs):" else "⏱️ AI-графік маршруту ($hoursCount год):",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = DarkForestGreen
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
 
-                                    Button(
-                                        onClick = {
-                                            isBookingLoading = true
-                                            coroutineScope.launch {
-                                                val res = repository.bookTour(
+                                        response.schedule.forEach { step ->
+                                            Row(
+                                                modifier = Modifier.padding(vertical = 3.dp),
+                                                verticalAlignment = Alignment.Top
+                                            ) {
+                                                Text(text = "📌 ", fontSize = 14.sp)
+                                                Text(text = step, style = MaterialTheme.typography.bodyMedium, color = DarkForestGreen)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // BOOKING CARD (ЗЕЛЕНА ТЕМА)
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFDCEEE0)),
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isEnglish) "📅 Book This Tour" else "📅 Забронювати цей тур",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = DarkForestGreen
+                                        )
+
+                                        OutlinedTextField(
+                                            value = userName,
+                                            onValueChange = { userName = it },
+                                            label = { Text(if (isEnglish) "Your Name" else "Ваше ім'я") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = Color.White,
+                                                unfocusedContainerColor = Color.White
+                                            )
+                                        )
+
+                                        OutlinedTextField(
+                                            value = userPhone,
+                                            onValueChange = { userPhone = it },
+                                            label = { Text(if (isEnglish) "Phone Number" else "Номер телефону") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = Color.White,
+                                                unfocusedContainerColor = Color.White
+                                            )
+                                        )
+
+                                        OutlinedTextField(
+                                            value = bookingDate,
+                                            onValueChange = { bookingDate = it },
+                                            label = { Text(if (isEnglish) "Date (YYYY-MM-DD)" else "Дата (РРРР-ММ-ДД)") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = Color.White,
+                                                unfocusedContainerColor = Color.White
+                                            )
+                                        )
+
+                                        Button(
+                                            onClick = {
+                                                tourViewModel.bookTour(
                                                     tourTitle = response.tourTitle,
                                                     bookingDate = bookingDate,
                                                     name = userName,
                                                     phone = userPhone,
                                                     lang = language
                                                 )
-                                                bookingMessage = res.getOrElse {
-                                                    if (isEnglish) "Booking failed" else "Помилка бронювання"
-                                                }
-                                                isBookingLoading = false
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = ButtonDefaults.buttonColors(containerColor = SoftSageGreen),
-                                        enabled = !isBookingLoading && userName.isNotBlank() && userPhone.isNotBlank()
-                                    ) {
-                                        Text(
-                                            text = if (isEnglish) "✅ Confirm Booking" else "✅ Підтвердити бронювання",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = SoftSageGreen,
+                                                disabledContainerColor = SoftSageGreen.copy(alpha = 0.55f)
+                                            ),
+                                            shape = RoundedCornerShape(12.dp),
+                                            enabled = !isBookingLoading && userName.isNotBlank() && userPhone.isNotBlank()
+                                        ) {
+                                            Text(
+                                                text = if (isEnglish) "✅ Confirm Booking" else "✅ Підтвердити бронювання",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
 
-                                    bookingMessage?.let { msg ->
-                                        Text(text = msg, color = DesertSand, fontWeight = FontWeight.SemiBold)
+                                        bookingMessage?.let { msg ->
+                                            Text(
+                                                text = "✅ $msg",
+                                                color = DarkForestGreen,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    else -> Unit
+                }
+
+                // SAVED TOURS HISTORY (ROOM DB)
+                if (savedTours.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isEnglish) "📜 Saved Tours History (Room)" else "📜 Історія збережених турів (Room)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = DarkForestGreen
+                            )
+                            TextButton(onClick = { tourViewModel.clearHistory() }) {
+                                Text(
+                                    text = if (isEnglish) "Clear" else "Очистити",
+                                    color = Color(0xFFC62828),
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+
+                    items(savedTours) { item ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.tourTitle,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DarkForestGreen,
+                                        fontSize = 15.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "🚜 ${item.recommendedVehicle}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.DarkGray
+                                    )
+                                    Text(
+                                        text = "⏱️ ${item.durationHours} год • ${item.difficulty}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SoftSageGreen,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                TextButton(onClick = { tourViewModel.deleteTour(item.id) }) {
+                                    Text("🗑️", fontSize = 16.sp)
                                 }
                             }
                         }

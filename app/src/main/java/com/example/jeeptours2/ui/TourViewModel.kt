@@ -24,6 +24,9 @@ class TourViewModel(
     private val _bookingResult = MutableStateFlow<String?>(null)
     val bookingResult: StateFlow<String?> = _bookingResult.asStateFlow()
 
+    private val _isBookingLoading = MutableStateFlow(false)
+    val isBookingLoading: StateFlow<Boolean> = _isBookingLoading.asStateFlow()
+
     private var lastInput: TourRequestInput? = null
 
     init {
@@ -32,13 +35,16 @@ class TourViewModel(
 
     fun generateTour(input: TourRequestInput) {
         lastInput = input
+        _bookingResult.value = null
         viewModelScope.launch {
             _uiState.value = TourUiState.Loading
             val result = repository.generateTour(input)
             result.fold(
                 onSuccess = { data ->
                     _uiState.value = TourUiState.Success(data)
-                    loadSavedTours()
+                    if (data.isValidRequest) {
+                        loadSavedTours()
+                    }
                 },
                 onFailure = { throwable ->
                     val appError = throwable as? AppError ?: AppError.Unknown
@@ -52,13 +58,23 @@ class TourViewModel(
         lastInput?.let { generateTour(it) }
     }
 
+    fun resetState() {
+        _uiState.value = TourUiState.Idle
+        _bookingResult.value = null
+    }
+
     fun bookTour(tourTitle: String, bookingDate: String, name: String, phone: String, lang: String) {
         viewModelScope.launch {
+            _isBookingLoading.value = true
+            _bookingResult.value = null
             val result = repository.bookTour(tourTitle, bookingDate, name, phone, lang)
             result.fold(
                 onSuccess = { msg -> _bookingResult.value = msg },
-                onFailure = { _bookingResult.value = "Помилка бронювання" }
+                onFailure = {
+                    _bookingResult.value = if (lang == "EN") "Booking error" else "Помилка бронювання"
+                }
             )
+            _isBookingLoading.value = false
         }
     }
 
@@ -80,9 +96,5 @@ class TourViewModel(
             repository.clearHistory()
             loadSavedTours()
         }
-    }
-
-    fun clearBookingResult() {
-        _bookingResult.value = null
     }
 }
